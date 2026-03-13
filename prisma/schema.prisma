@@ -1,0 +1,173 @@
+// Prisma schema for Global Company Formation platform
+// MySQL provider
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
+  password  String
+  name      String?
+  role      Role      @default(CLIENT)
+  isSuperAdmin Boolean @default(false)
+  tickets   Ticket[]
+  companies Company[]
+  orders    Order[]
+  uploadedDocs Document[] @relation("UploadedDocs")
+  kycDocs   KycDocument[]
+  // 公司注册草稿/交易
+  chFilings ChFiling[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+enum Role {
+  ADMIN
+  CLIENT
+  PARTNER
+}
+
+model Company {
+  id            Int              @id @default(autoincrement())
+  legalName     String
+  jurisdiction  String
+  status        CompanyStatus    @default(FORMING)
+  formationDate DateTime?
+  user          User             @relation(fields: [userId], references: [id])
+  userId        Int
+  orders        Order[]
+  documents     Document[]
+  reminders     FilingReminder[]
+  // 新增：反向关联 ChFiling
+  chFilings     ChFiling[]
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+}
+
+enum CompanyStatus {
+  FORMING
+  ACTIVE
+  INACTIVE
+}
+
+model Order {
+  id            Int          @id @default(autoincrement())
+  type          OrderType
+  amount        Decimal      @db.Decimal(10, 2)
+  currency      String       @default("USD")
+  stripeSession String
+  state         OrderState   @default(PENDING)
+  company       Company      @relation(fields: [companyId], references: [id])
+  companyId     Int
+  user          User         @relation(fields: [userId], references: [id])
+  userId        Int
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+enum OrderType {
+  FORMATION
+  ANNUAL
+}
+
+enum OrderState {
+  PENDING
+  PAID
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Document {
+  id        Int      @id @default(autoincrement())
+  path      String
+  category  String
+  company   Company  @relation(fields: [companyId], references: [id])
+  companyId Int
+  uploadedBy User     @relation("UploadedDocs", fields: [uploadedById], references: [id])
+  uploadedById Int
+  createdAt DateTime @default(now())
+}
+
+model FilingReminder {
+  id         Int       @id @default(autoincrement())
+  company    Company   @relation(fields: [companyId], references: [id])
+  companyId  Int
+  dueDate    DateTime
+  type       String
+  completed  Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+}
+
+model Ticket {
+  id        Int       @id @default(autoincrement())
+  subject   String
+  status    TicketStatus @default(OPEN)
+  user      User      @relation(fields: [userId], references: [id])
+  userId    Int
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+enum TicketStatus {
+  OPEN
+  PENDING
+  CLOSED
+}
+
+model Partner {
+  id           Int      @id @default(autoincrement())
+  name         String
+  jurisdiction String
+  service      String
+  slaDays      Int
+  contactEmail String
+  createdAt    DateTime @default(now())
+}
+
+model KycDocument {
+  id       Int     @id @default(autoincrement())
+  path     String
+  docType  String
+  verified Boolean @default(false)
+  user     User    @relation(fields: [userId], references: [id])
+  userId   Int
+  uploadedAt DateTime @default(now())
+}
+
+// Companies House 公司注册草稿 / 交易记录
+model ChFiling {
+  id             Int       @id @default(autoincrement())
+  // 归属用户（发起注册的 Founder）
+  user           User      @relation(fields: [userId], references: [id])
+  userId         Int
+  // 关联内部 Company（可选，注册完成后回填）
+  company        Company?  @relation(fields: [companyId], references: [id])
+  companyId      Int?
+
+  // 当前状态：DRAFT / INFO_COMPLETED / KYC_PENDING / KYC_PASSED / READY_FOR_FILING /
+  // FILED_MANUALLY / FILED_WITH_CH / CH_ACCEPTED / CH_REJECTED
+  status         String
+
+  // 用户填写的完整注册信息（JSON 字符串）
+  payloadJson    String @db.Text
+
+  // CH 返回或人工录入的 company number（注册完成后必有）
+  companyNumber  String?   @unique
+
+  // CH Filing transaction / submission ID（未来接入真正 Filing API 时使用）
+  transactionId  String?
+
+  // 环境：sandbox / production
+  env            String    @default("sandbox")
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
